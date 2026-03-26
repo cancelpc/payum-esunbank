@@ -8,6 +8,8 @@
 [![License](https://poser.pugx.org/payum-tw/esunbank/license.svg)](https://packagist.org/packages/payum-tw/esunbank)
 [![Monthly Downloads](https://poser.pugx.org/payum-tw/esunbank/d/monthly)](https://packagist.org/packages/payum-tw/esunbank)
 [![Daily Downloads](https://poser.pugx.org/payum-tw/esunbank/d/daily)](https://packagist.org/packages/payum-tw/esunbank)
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/recca0120/payum-esunbank/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/recca0120/payum-esunbank/?branch=master)
+[![Code Coverage](https://scrutinizer-ci.com/g/recca0120/payum-esunbank/badges/coverage.png?b=master)](https://scrutinizer-ci.com/g/recca0120/payum-esunbank/?branch=master)
 
 The Payum extension to rapidly build new extensions.
 
@@ -17,7 +19,7 @@ The Payum extension to rapidly build new extensions.
 $ composer create-project payum-tw/esunbank
 ```
 
-2. Replace all occurrences of `payum` with your vendor name. It may be your github name, for now let's say you choose: `acme`.
+2. Replace all occurrences of `payum` with your vendor name. It may be your github name, for now let's say you choose: `esunbank`.
 3. Replace all occurrences of `esunbank` with a payment gateway name. For example Stripe, Paypal etc. For now let's say you choose: `esunbank`.
 4. Register a gateway factory to the payum's builder and create a gateway:
 
@@ -43,8 +45,7 @@ $payum = (new PayumBuilder)
         'sandbox' => true,
     ])
 
-    ->getPayum()
-;
+    ->getPayum();
 ```
 
 5. While using the gateway implement all method where you get `Not implemented` exception:

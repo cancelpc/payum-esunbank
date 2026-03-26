@@ -2,17 +2,17 @@
 
 namespace PayumTW\Esunbank\Action;
 
-use Payum\Core\Request\Sync;
 use Payum\Core\Request\Capture;
 use Payum\Core\GatewayAwareTrait;
 use Payum\Core\GatewayAwareInterface;
 use Payum\Core\Action\ActionInterface;
 use Payum\Core\Bridge\Spl\ArrayObject;
 use Payum\Core\Request\GetHttpRequest;
+use PayumTW\Esunbank\Action\Api\BaseApiAwareAction;
 use PayumTW\Esunbank\Request\Api\CreateTransaction;
 use Payum\Core\Exception\RequestNotSupportedException;
 
-class CaptureAction implements ActionInterface, GatewayAwareInterface
+class CaptureAction extends BaseApiAwareAction implements ActionInterface, GatewayAwareInterface
 {
     use GatewayAwareTrait;
 
@@ -31,7 +31,12 @@ class CaptureAction implements ActionInterface, GatewayAwareInterface
         $this->gateway->execute($httpRequest);
 
         if (isset($httpRequest->request['DATA']) === true) {
-            $this->gateway->execute(new Sync($details));
+            $httpRequest->request = $this->api->parseResponse($httpRequest->request);
+            if (empty($httpRequest->request['MACD']) === false && $this->api->verifyHash($httpRequest->request) === false) {
+                $httpRequest->request['RC'] = 'G9';
+            }
+
+            $details->replace($httpRequest->request);
 
             return;
         }

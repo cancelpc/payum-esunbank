@@ -11,12 +11,12 @@ use Payum\Core\Exception\Http\HttpException;
 class Api
 {
     /**
-     * @var HttpClientInterface
+     * @var \Payum\Core\HttpClientInterface
      */
     protected $client;
 
     /**
-     * @var MessageFactory
+     * @var \Http\Message\MessageFactory
      */
     protected $messageFactory;
 
@@ -26,46 +26,66 @@ class Api
     protected $options = [];
 
     /**
-     * @param array               $options
-     * @param HttpClientInterface $client
-     * @param MessageFactory      $messageFactory
+     * $encrypter.
+     *
+     * @var Encrypter
+     */
+    protected $encrypter;
+
+    /**
+     * @param array $options
+     * @param \Payum\Core\HttpClientInterface $client
+     * @param \Http\Message\MessageFactory $messageFactory
+     * @param Encrypter $encrypter
      *
      * @throws \Payum\Core\Exception\InvalidArgumentException if an option is invalid
      */
-    public function __construct(array $options, HttpClientInterface $client, MessageFactory $messageFactory)
+    public function __construct(array $options, HttpClientInterface $client, MessageFactory $messageFactory, Encrypter $encrypter = null)
     {
         $this->options = $options;
         $this->client = $client;
         $this->messageFactory = $messageFactory;
+        $this->encrypter = $encrypter ?: new Encrypter();
+        $this->encrypter->setKey($this->options['M']);
     }
 
     /**
-     * @param array $fields
+     * parseResponse.
      *
+     * @param array $response
      * @return array
      */
-    protected function doRequest(array $fields, $type = 'sync')
+    public function parseResponse($response)
     {
-        $headers = [
-            'Content-Type' => 'application/x-www-form-urlencoded',
-        ];
-
-        $request = $this->messageFactory->createRequest('POST', $this->getApiEndpoint($type), $headers, http_build_query($fields));
-
-        $response = $this->client->send($request);
-
-        if (false == ($response->getStatusCode() >= 200 && $response->getStatusCode() < 300)) {
-            throw HttpException::factory($request, $response);
+        if (is_string($response) === true) {
+            $response = $this->parseStr($response);
         }
 
-        $details = [];
-        parse_str($response->getBody()->getContents(), $details);
-
-        if (empty($details['DATA']) === true) {
+        if (empty($response['DATA']) === true) {
             throw new LogicException('Response content is not valid');
         }
 
-        return $details;
+        $data = json_decode($response['DATA'], true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $data = [];
+            parse_str(str_replace(',', '&', $response['DATA']), $data);
+        }
+
+        if (isset($data['returnCode']) === true) {
+            $response['returnCode'] = $data['returnCode'];
+        }
+
+        if (isset($data['version']) === true) {
+            $response['version'] = $data['version'];
+        }
+
+        if (isset($data['txnData']) === true) {
+            $response = array_merge($response, $data['txnData']);
+            unset($data['txnData']);
+        }
+
+        return array_merge($response, $data);
     }
 
     /**
@@ -98,7 +118,6 @@ class Api
      * createTransaction.
      *
      * @param array $params
-     *
      * @return array
      */
     public function createTransaction(array $params)
@@ -106,11 +125,11 @@ class Api
         $supportedParams = [
             // 訂單編號, 由特約商店產生，不可重複，不可 包含【_】字元，英數限用大寫
             'ONO' => '',
-            // 回覆位址, 'https://acqtest.esunbank.com.tw/ACQTrans/test/print.jsp',
+            // 回覆位址, 'https://acqtest.esunbank.com.tw/ACQTrans/test/print.jsp'
             'U' => 'https://acqtest.esunbank.com.tw/ACQTrans/test/print.jsp',
             // 特店代碼
             'MID' => $this->options['MID'],
-            // 銀行紅利折抵, Y：使用銀行紅利交易。 N：不使用銀行紅利交易。
+            // 銀行紅利折抵, Y：使用銀行紅利交易。 N：不使用銀行紅利交易
             'BPF' => 'N',
             // 分期代碼, 三期：0100103  六期：0100106 正式環境參數由業務經辦提供
             'IC' => '',
@@ -127,6 +146,8 @@ class Api
 
         if (empty($params['IC']) === true) {
             unset($params['IC']);
+        } else {
+            $params['TID'] = 'EC000002';
         }
 
         $params['BPF'] = strtoupper($params['BPF']);
@@ -134,54 +155,40 @@ class Api
             unset($params['BPF']);
         }
 
-        return $this->prepareRequestData($params);
+        return $this->encrypter->encryptRequest($params);
     }
 
     /**
      * getTransactionData.
      *
      * @param mixed $params
-     *
      * @return array
      */
     public function getTransactionData(array $params)
     {
-        $details = [];
+        $supportedParams = [
+            // 訂單編號, 由特約商店產生，不可重複，不可 包含【_】字元，英數限用大寫
+            'ONO' => '',
+            // 特店代碼
+            'MID' => $this->options['MID'],
+        ];
 
-        if (empty($params['response']) === false) {
-            parse_str(str_replace(',', '&', $params['response']['DATA']), $details);
+        $params = array_replace(
+            $supportedParams,
+            array_intersect_key($params, $supportedParams)
+        );
 
-            if ($this->verifyHash($params['response']['MACD'], $details) === false) {
-                $details['RC'] = '-1';
-            }
-        } else {
-            $supportedParams = [
-                // 訂單編號, 由特約商店產生，不可重複，不可 包含【_】字元，英數限用大寫
-                'ONO' => '',
-                // 特店代碼
-                'MID' => $this->options['MID'],
-            ];
-
-            $data = array_replace(
-                $supportedParams,
-                array_intersect_key($params, $supportedParams)
-            );
-
-            $data['ONO'] = strtoupper($data['ONO']);
-
-            $body = $this->doRequest($this->prepareRequestData($data), 'sync');
-            $response = json_decode($body['DATA'], true);
-            $details = $response['txnData'];
-            $details['response'] = $response;
-        }
-
-        return $details;
+        return $this->doRequest($params, 'sync');
     }
 
+    /**
+     * refundTransaction.
+     *
+     * @param array $params
+     * @return array
+     */
     public function refundTransaction(array $params)
     {
-        $details = [];
-
         $supportedParams = [
             // 05:授權 51:取消授權 71:退貨授權
             'TYP' => '71',
@@ -193,21 +200,20 @@ class Api
             'C' => null,
         ];
 
-        $data = array_replace(
+        $params = array_replace(
             $supportedParams,
             array_intersect_key($params, $supportedParams)
         );
 
-        $data['ONO'] = strtoupper($data['ONO']);
-
-        $body = $this->doRequest($this->prepareRequestData($data), 'refund');
-        $response = json_decode($body['DATA'], true);
-        $details = $response['txnData'];
-        $details['response'] = $response;
-
-        return $details;
+        return $this->doRequest($params, 'refund');
     }
 
+    /**
+     * cancelTransaction.
+     *
+     * @param array $params
+     * @return array
+     */
     public function cancelTransaction(array $params)
     {
         $supportedParams = [
@@ -222,70 +228,65 @@ class Api
             array_intersect_key($params, $supportedParams)
         );
 
-        $params['ONO'] = strtoupper($params['ONO']);
-
-        $data['ONO'] = strtoupper($data['ONO']);
-
-        $body = $this->doRequest($this->prepareRequestData($data), 'cancel');
-        $response = json_decode($body['DATA'], true);
-        $details = $response['txnData'];
-        $details['response'] = $response;
-
-        return $details;
-    }
-
-    /**
-     * prepareRequestData.
-     *
-     * @method prepareRequestData
-     *
-     * @param array $params
-     * @param int   $option
-     *
-     * @return array
-     */
-    protected function prepareRequestData($params, $option = JSON_UNESCAPED_SLASHES)
-    {
-        return [
-            'data' => json_encode($params, $option),
-            'mac' => $this->calculateHash($params, $option),
-            'ksn' => 1,
-        ];
+        return $this->doRequest($params, 'cancel');
     }
 
     /**
      * @param array $params
-     *
      * @return string
      */
-    public function calculateHash($params, $option = JSON_UNESCAPED_SLASHES)
+    public function calculateHash($params)
     {
-        if (is_array($params) === true) {
-            $params = json_encode($params, $option);
-        }
-
-        return hash('sha256', $params.$this->options['M']);
+        return $this->encrypter->encrypt($params);
     }
 
     /**
      * verifyHash.
      *
-     * @method verifyHash
-     *
-     * @param array $params
-     *
+     * @param array $response
      * @return bool
      */
-    public function verifyHash($macd, $data)
+    public function verifyHash($response)
     {
-        return true;
+        // 尚未確定
+        return empty($response['MACD']) === true
+            ? false
+            : $this->calculateHash($response) === $response['MACD'];
+    }
 
-        $result = false;
-        if ($macd === $this->calculateHash($data)) {
-            $result = true;
+    /**
+     * @param array $fields
+     * @return array
+     */
+    protected function doRequest(array $fields, $type = 'sync')
+    {
+        $request = $this->messageFactory->createRequest('POST', $this->getApiEndpoint($type), [
+            'Content-Type' => 'application/x-www-form-urlencoded',
+        ], http_build_query($this->encrypter->encryptRequest($fields)));
+
+        $response = $this->client->send($request);
+
+        if (false === ($response->getStatusCode() >= 200 && $response->getStatusCode() < 300)) {
+            throw HttpException::factory($request, $response);
         }
 
-        return $result;
+        return $this->parseResponse(
+            $response->getBody()->getContents()
+        );
+    }
+
+    /**
+     * parseStr.
+     *
+     * @param string $str
+     * @return array
+     */
+    protected function parseStr($str)
+    {
+        $response = [];
+        parse_str($str, $response);
+
+        return $response;
     }
 
     /**

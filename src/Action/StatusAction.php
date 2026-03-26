@@ -27,21 +27,11 @@ class StatusAction implements ActionInterface
         }
 
         if ($details['RC'] === '00') {
-            if (isset($details['response']) === true && isset($details['response']['MACD'])) {
-                $request->markCaptured();
-
-                return;
-            }
-
-            // 單筆查詢
-            if (isset($details['AIR']) === true && isset($details['TXNAMOUNT']) === true) {
-                $request->markCaptured();
-
-                return;
-            }
-
-            if (isset($details['AIR']) === true) {
-                $request->markCanceled();
+            if (isset($details['RRN']) === true) {
+                // TXNAMOUNT 單筆查詢
+                isset($details['MACD']) === true || isset($details['TXNAMOUNT']) === true
+                    ? $request->markCaptured()
+                    : $request->markCanceled();
 
                 return;
             }
